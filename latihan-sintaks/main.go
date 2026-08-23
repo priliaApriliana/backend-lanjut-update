@@ -15,7 +15,7 @@ func tukarNilai(a, b *int) { *a, *b = *b, *a }
 
 func main() {
 	// Variabel
-	var nama string = "Putri"
+	var nama string = "Putrii"
 	umur := 20
 	var kosong string
 	fmt.Printf("%s %d zero value: %q\n", nama, umur, kosong)
