@@ -2,8 +2,8 @@ package main
 
 import "fmt"
 
-// tukarNilai menukar nilai dua integer lewat pointer
-func tukarNilai(a, b *int) {
+// swap menukar nilai dua integer melalui pointer
+func swap(a, b *int) {
 	*a, *b = *b, *a
 }
 
@@ -34,7 +34,7 @@ func main() {
 	x, y := 1, 2
 	fmt.Println("--- swap() ---")
 	fmt.Println("Sebelum swap:", x, y)
-	tukarNilai(&x, &y)
+	swap(&x, &y)
 	fmt.Println("Setelah swap :", x, y)
 
 	// Bukti updateSlice()
