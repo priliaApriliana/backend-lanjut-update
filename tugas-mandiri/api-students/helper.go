@@ -50,6 +50,7 @@ func fail(c *fiber.Ctx, status int, message string) error {
 	})
 }
 
+// dignkn khusus buat 422 (error per field)
 func failValidation(c *fiber.Ctx, errs map[string]string) error {
 	return c.Status(fiber.StatusUnprocessableEntity).JSON(Response{
 		Success: false,

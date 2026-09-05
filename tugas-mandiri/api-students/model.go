@@ -11,6 +11,7 @@ type Student struct {
 	CreatedAt 	time.Time 	`json:"created_at"`
 }
 
+// POST, semua field wajib
 type CreateStudentRequest struct {
 	NIM 		string 		`json:"nim"`	
 	Name 		string 		`json:"name"`
@@ -18,6 +19,7 @@ type CreateStudentRequest struct {
 	IsActive 	bool 		`json:"is_active"`
 }
 
+// PUT, ganti semua isi/body, tipe biasa dan semuanya wajib
 type UpdateStudentRequest struct {
 	NIM 		string 		`json:"nim"`	
 	Name 		string 		`json:"name"`
@@ -25,6 +27,7 @@ type UpdateStudentRequest struct {
 	IsActive 	bool 		`json:"is_active"`
 }
 
+// PATCH, ubah sbgaian, tipe pointer 
 type PatchStudentRequest struct {
 	NIM 		*string 	`json:"nim,omitempty"`
 	Name 		*string 	`json:"name,omitempty"`
