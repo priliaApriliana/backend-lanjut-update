@@ -1,11 +1,52 @@
-# API Students — Modul 3 (Database & Repository Pattern)
+# API Students
 
-REST API untuk mengelola data mahasiswa, dibangun menggunakan Go dan Fiber v2, data disimpan permanen di PostgreSQL melalui pola repository.
+REST API untuk mengelola data mahasiswa, dibangun menggunakan Go dan Fiber v2.
 
 - **Nama:** Putri Apriliana
 - **NIM:** 434241022
 - **Repositori:** https://github.com/priliaApriliana/backend-lanjut
 - **Lokasi proyek:** `tugas-mandiri/api-students`
+
+---
+
+### Modul 2 — REST API Dasar
+
+Membangun fondasi API dari nol menggunakan Go dan Fiber v2:
+
+- Setup proyek Go dengan Fiber v2 sebagai HTTP framework.
+- Membuat CRUD lengkap (GET list, GET by ID, POST, PUT, PATCH, DELETE) untuk entitas Student.
+- Data disimpan **in-memory** menggunakan slice — belum ada database.
+- Menerapkan response envelope yang konsisten (`success`, `message`, `data`, `meta`, `errors`).
+- Fitur tambahan: paginasi, pencarian nama, sorting, filter `is_active` dan rentang `grade`.
+- Middleware `requireJSON` untuk menolak request tanpa `Content-Type: application/json`.
+- Validasi input (NIM dan nama wajib diisi, grade 0–4.0) dengan error per field (status 422).
+
+### Modul 3 — Database & Repository Pattern
+
+Memindahkan penyimpanan data dari in-memory ke PostgreSQL:
+
+- Menambahkan PostgreSQL sebagai penyimpanan permanen, menggantikan slice in-memory.
+- Menggunakan driver `pgx/v5` dengan connection pool (`pgxpool`) untuk efisiensi koneksi.
+- Menerapkan **repository pattern**: interface `StudentRepository` memisahkan kontrak akses data dari implementasi PostgreSQL.
+- Semua query menggunakan parameterized query (`$1`, `$2`, ...) untuk mencegah SQL injection.
+- Sorting menggunakan daftar putih nama kolom karena `ORDER BY` tidak bisa diparameterkan.
+- Duplikasi NIM dijaga oleh `UNIQUE INDEX` di database, bukan pengecekan manual di kode Go.
+- Menambahkan endpoint `/api/v1/health` untuk cek koneksi database (status 503 jika gagal).
+- Konfigurasi environment melalui file `.env` dengan package `godotenv`.
+
+### Modul 4 — Clean Architecture
+
+Merestrukturisasi proyek ke dalam folder-folder terpisah sesuai tanggung jawab, tanpa mengubah perilaku HTTP:
+
+- **Restrukturisasi folder**: kode yang sebelumnya terkumpul di `main.go`, `handler.go`, dan `helper.go` dipecah ke dalam package `config`, `database`, `helper`, `middleware`, `route`, dan sub-package `app/model`, `app/repository`, `app/service`.
+- **Pemisahan business rules**: fungsi validasi (`ValidateCreate`, `ValidateReplace`, `ApplyPatch`) dipindahkan ke file `student_rules.go` yang **murni** — tidak mengimpor Fiber maupun SQL.
+- **Unit test**: 5 test untuk fungsi business rules (`TestValidateCreate`, `TestValidateReplace`, `TestApplyPatch`, `TestIsEmptyPatch`, `TestCountTotalPages`), semua PASS.
+- **Logger terstruktur**: menggunakan `log/slog` dengan format JSON, menulis ke layar (stdout) dan file `logs/app.log` sekaligus. Rotasi file otomatis menggunakan `lumberjack` (maks 10 MB, 5 backup, 14 hari).
+- Setiap log request mencatat: `request_id`, `method`, `path`, `status`, `duration`, dan `ip`.
+- `main.go` disederhanakan menjadi hanya **urutan perakitan** — tidak ada handler, query, atau logika bisnis.
+- File `.env` dan folder `logs/` tidak ikut ter-commit (sudah masuk `.gitignore`).
+
+---
 
 ## Cara Menyiapkan dari Nol
 
@@ -55,6 +96,7 @@ REST API untuk mengelola data mahasiswa, dibangun menggunakan Go dan Fiber v2, d
 | `DB_NAME` | Nama database | `tugas_mandiri_students` |
 | `DB_SSLMODE` | Mode SSL koneksi | `disable` (untuk lokal) |
 | `DB_MAX_CONNS` | Jumlah koneksi maksimum di connection pool | `10` |
+| `LOG_LEVEL` | Level log minimum (`debug`, `info`, `warn`, `error`) | `info` |
 
 ## Skema Tabel
 
@@ -75,31 +117,41 @@ CREATE INDEX IF NOT EXISTS students_name_lower_idx
     ON students (LOWER(name));
 ```
 
-**Kenapa NIM unik dijaga di database, bukan di kode Go:**
-Pemeriksaan manual (loop mencari NIM yang sama di kode Go, seperti versi Modul 2) punya celah race condition — dua request POST dengan NIM yang sama, yang datang nyaris bersamaan, bisa lolos pemeriksaan sebelum salah satunya sempat tersimpan. `UNIQUE INDEX` di database tidak punya celah itu, karena database sendiri yang memutuskan mana yang lebih dulu masuk.
+## Struktur Proyek (Modul 4)
 
-**Kenapa ada index tambahan pada `LOWER(name)`:**
-Endpoint List melakukan pencarian nama secara case-insensitive lewat `ILIKE`. Tanpa index ini, setiap pencarian nama melakukan full table scan pada seluruh baris tabel.
-
-## Struktur Proyek
 ```
 api-students/
 ├── app/
 │   ├── model/
-│   │   └── student.go         struct entitas, request, dan ListQuery
-│   └── repository/
-│       └── student_repository.go   kontrak dan implementasi akses data (pgx)
+│   │   ├── student.go              entitas Student, struct request, dan ListQuery
+│   │   └── response.go             struct Response dan Meta
+│   ├── repository/
+│   │   └── student_repository.go   kontrak (interface) dan implementasi akses data (pgx)
+│   └── service/
+│       ├── student_service.go      handler HTTP yang memanggil repository
+│       ├── student_rules.go        business rules murni (validasi, patch) — tanpa Fiber/SQL
+│       └── student_rules_test.go   unit test untuk business rules
 ├── config/
-│   └── env.go                 memuat variabel environment
+│   ├── app.go                      perakitan aplikasi Fiber (middleware + route)
+│   ├── env.go                      pembaca variabel environment (.env)
+│   └── logger.go                   logger JSON terstruktur + rotasi file
 ├── database/
-│   └── postgres.go            koneksi dan connection pool
+│   └── postgres.go                 koneksi dan connection pool PostgreSQL
+├── helper/
+│   ├── request.go                  pembaca query string dan parameter path
+│   └── response.go                 response envelope (Ok, Created, Fail, dll.)
+├── middleware/
+│   └── middleware.go               middleware global (requestid, logger, CORS) + RequireJSON
+├── route/
+│   └── route.go                    pendaftaran route ke handler
 ├── migrations/
 │   └── 001_create_students.sql
-├── .env                        (tidak di-commit)
+├── logs/                           output log (tidak di-commit)
+├── .env                            konfigurasi environment (tidak di-commit)
 ├── .env.example
-├── main.go
-├── handler.go
-└── helper.go
+├── main.go                         titik masuk — hanya urutan perakitan
+├── go.mod
+└── go.sum
 ```
 
 ## Format Respons
@@ -156,8 +208,6 @@ Semua endpoint pakai format respons yang sama:
 | `order`     | asc     | `asc` atau `desc`                                  |
 | `is_active` | —       | Filter: `true` / `false`                           |
 | `grade`     | —       | Filter rentang: `A` (>=3.5), `B` (3.0–3.49), `C` (2.5–2.99), `D` (<2.5) |
-
-`sort` memakai daftar putih nama kolom karena `ORDER BY` tidak bisa diparameterkan secara aman di SQL. Kalau nilai `sort` di luar daftar putih (termasuk percobaan SQL injection), otomatis balik ke `id` dan query tetap berjalan aman.
 
 **Respons 200:**
 ```json
@@ -281,9 +331,16 @@ Ubah sebagian data mahasiswa. Cuma field yang dikirim yang berubah; alur baca-du
 - Go 1.26
 - Fiber v2.52
 - PostgreSQL 18 (driver `pgx/v5`, connection pool `pgxpool`)
-- Repository pattern: interface `StudentRepository` di `app/repository`, implementasi PostgreSQL terpisah dari handler
+- `log/slog` + `lumberjack` untuk logger JSON terstruktur dengan rotasi file
+- Repository pattern: interface `StudentRepository` memisahkan kontrak dari implementasi
+
+## Menjalankan Unit Test
+
+```bash
+go test ./app/service/ -v
+```
 
 ## Sumber Bantuan
 
-Modul Praktikum Pertemuan 2 dan 3 (Universitas Airlangga).
-Claude (Anthropic) digunakan sebagai asisten untuk menyusun struktur kode repository pattern, penulisan query berparameter, debugging error compile/environment, dokumentasi mengikuti struktur dan gaya kode yang sudah dibuat sendiri pada tugas Modul 2.
+- Modul Praktikum Pertemuan 2, 3, dan 4 (Universitas Airlangga).
+- Claude (Anthropic) digunakan sebagai asisten untuk menyusun struktur kode repository pattern, penulisan query berparameter, restrukturisasi folder ke clean architecture, debugging error compile/environment, dan dokumentasi mengikuti struktur dan gaya kode yang sudah dibuat sendiri.
