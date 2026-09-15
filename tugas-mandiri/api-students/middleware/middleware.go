@@ -14,10 +14,16 @@ import (
 
 // Register memasang middleware global, urutan sama persis dengan main.go
 // Modul 3: requestid -> logger -> cors.
-func Register(app *fiber.App, logger *slog.Logger) {
+// Modul 5: CORS origin dibatasi via ALLOWED_ORIGINS.
+func Register(app *fiber.App, logger *slog.Logger, allowedOrigins string) {
 	app.Use(requestid.New())
 	app.Use(RequestLogger(logger))
-	app.Use(cors.New())
+	app.Use(cors.New(cors.Config{
+		AllowOrigins:     allowedOrigins,
+		AllowMethods:     "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+		AllowHeaders:     "Origin,Content-Type,Accept,Authorization",
+		AllowCredentials: false,
+	}))
 }
 
 // RequestLogger menggantikan logger.New() bawaan Fiber. Sekarang mencatat
