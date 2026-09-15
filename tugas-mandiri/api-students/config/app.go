@@ -13,18 +13,29 @@ import (
 )
 
 // NewApp merakit aplikasi: membuat instance Fiber, memasang middleware,
-// lalu mendaftarkan route. Sama persis dengan yang dulu tertulis langsung
-// di main.go Modul 3.
+// lalu mendaftarkan route.
+// Modul 5: tambah authService, jwtManager; BodyLimit 1 MB.
 func NewApp(
-	logger *slog.Logger, pool *pgxpool.Pool, studentService *service.StudentService,
+	logger *slog.Logger,
+	pool *pgxpool.Pool,
+	studentService *service.StudentService,
+	authService *service.AuthService,
+	jwtManager *helper.JWTManager,
 ) *fiber.App {
 	app := fiber.New(fiber.Config{
-		AppName:      "API Students - Modul 4",
+		AppName:      "API Students - Modul 5",
 		ErrorHandler: newErrorHandler(),
+		BodyLimit:    1 * 1024 * 1024, // 1 MB
 	})
 
-	middleware.Register(app, logger)
-	route.Register(app, pool, studentService)
+	// CORS: origin dibatasi via environment variable.
+	allowedOrigins := GetEnv("ALLOWED_ORIGINS", "http://localhost:3000")
+	middleware.Register(app, logger, allowedOrigins)
+
+	// Middleware auth: dipakai oleh route yang memerlukan token.
+	authMiddleware := middleware.RequireAuth(jwtManager)
+
+	route.Register(app, pool, studentService, authService, authMiddleware)
 
 	// Penampung terakhir untuk URL yang tidak dikenal.
 	app.Use(func(c *fiber.Ctx) error {
