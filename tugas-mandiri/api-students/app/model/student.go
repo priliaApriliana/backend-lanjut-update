@@ -2,6 +2,7 @@
 
 import "time"
 
+// database table schema
 type Student struct {
     ID        int       `json:"id"`
     NIM       string    `json:"nim"`

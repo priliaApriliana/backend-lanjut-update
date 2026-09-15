@@ -19,7 +19,7 @@ var (
     ErrDuplicate = errors.New("data sudah ada")
 )
 
-// KONTRAK - tidak ada satu pun kata SQL atau postgres di sini.
+// interface
 type StudentRepository interface {
     FindAll(ctx context.Context, q model.ListQuery) ([]model.Student, int, error)
     FindByID(ctx context.Context, id int) (model.Student, error)
@@ -106,6 +106,7 @@ func (r *studentPostgresRepository) FindAll(
     }
 
     sqlText := fmt.Sprintf(
+        // query untuk mengambil data mahasiswa
         `SELECT id, nim, name, grade, is_active, created_at
          FROM students%s
          ORDER BY %s %s

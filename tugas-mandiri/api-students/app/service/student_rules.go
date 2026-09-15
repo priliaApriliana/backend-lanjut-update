@@ -9,6 +9,7 @@ import (
 // File ini berisi business rules MURNI: tidak menyentuh fiber.Ctx,
 // tidak menyentuh database, dan tidak tahu apa pun tentang HTTP.
 
+// validate create untuk memeriksa isi permintaan create student
 func ValidateCreate(req model.CreateStudentRequest) map[string]string {
 	errs := map[string]string{}
 	if strings.TrimSpace(req.NIM) == "" {
@@ -23,6 +24,9 @@ func ValidateCreate(req model.CreateStudentRequest) map[string]string {
 	return errs
 }
 
+// validate replace memeriksa isi permintaan PUT, NIM tidak di periksa disini
+// karena NIM didapat dari path parameter
+// nil dianggap field tidak diubah
 func ValidateReplace(req model.UpdateStudentRequest) map[string]string {
 	errs := map[string]string{}
 	if strings.TrimSpace(req.NIM) == "" {
@@ -37,6 +41,7 @@ func ValidateReplace(req model.UpdateStudentRequest) map[string]string {
 	return errs
 }
 
+// apply patch menggabungkan update ke entity yang sudah ada
 func ApplyPatch(
 	current model.Student, req model.PatchStudentRequest,
 ) (model.Student, map[string]string) {
