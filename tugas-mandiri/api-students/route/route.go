@@ -14,7 +14,14 @@ import (
 
 // Register memetakan URL ke method pada service. Tidak ada logika bisnis,
 // tidak ada query, tidak ada validasi di sini.
-func Register(app *fiber.App, pool *pgxpool.Pool, studentService *service.StudentService) {
+// Modul 5: tambah authService, authMiddleware; kunci /students.
+func Register(
+	app *fiber.App,
+	pool *pgxpool.Pool,
+	studentService *service.StudentService,
+	authService *service.AuthService,
+	authMiddleware fiber.Handler,
+) {
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.SendString("Hello World")
 	})
@@ -22,7 +29,19 @@ func Register(app *fiber.App, pool *pgxpool.Pool, studentService *service.Studen
 	api := app.Group("/api/v1")
 	api.Get("/health", healthCheck(pool))
 
-	s := api.Group("/students", middleware.RequireJSON)
+	// ==================== AUTH (publik) ====================
+	auth := api.Group("/auth", middleware.RequireJSON)
+	auth.Post("/register", authService.Register)
+	auth.Post("/login", middleware.LoginRateLimiter(), authService.Login)
+	auth.Post("/refresh", authService.Refresh)
+	auth.Post("/logout", authService.Logout)
+
+	// /auth/me memerlukan token.
+	auth.Get("/me", authMiddleware, authService.Me)
+
+	// ==================== STUDENTS (dilindungi) ====================
+	// Semua endpoint students memerlukan token yang valid.
+	s := api.Group("/students", authMiddleware, middleware.RequireJSON)
 	s.Get("", studentService.List)
 	s.Get("/:id", studentService.Get)
 	s.Post("/", studentService.Create)
