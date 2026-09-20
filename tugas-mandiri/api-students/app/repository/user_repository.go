@@ -12,10 +12,15 @@ import (
 )
 
 // UserRepository mendefinisikan operasi pada tabel users.
+// Modul 6: ditambahkan FindAll, Update, Delete, UpdateRole.
 type UserRepository interface {
 	Create(ctx context.Context, u model.User) (model.User, error)
+	FindAll(ctx context.Context) ([]model.User, error)
 	FindByID(ctx context.Context, id int) (model.User, error)
 	FindByUsername(ctx context.Context, username string) (model.User, error)
+	Update(ctx context.Context, u model.User) (model.User, error)
+	Delete(ctx context.Context, id int) error
+	UpdateRole(ctx context.Context, id int, role string) (model.User, error)
 }
 
 type userPostgresRepository struct {
@@ -47,6 +52,33 @@ func (r *userPostgresRepository) Create(
 	// Kosongkan password dari struct yang dikembalikan.
 	u.Password = ""
 	return u, nil
+}
+
+// FindAll mengembalikan seluruh user tanpa password.
+func (r *userPostgresRepository) FindAll(
+	ctx context.Context,
+) ([]model.User, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, username, email, role, is_active, created_at
+		 FROM users ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("mengambil daftar user: %w", err)
+	}
+	defer rows.Close()
+
+	hasil := []model.User{}
+	for rows.Next() {
+		var u model.User
+		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Role, &u.IsActive, &u.CreatedAt); err != nil {
+			return nil, fmt.Errorf("membaca baris user: %w", err)
+		}
+		hasil = append(hasil, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("membaca hasil query user: %w", err)
+	}
+
+	return hasil, nil
 }
 
 func (r *userPostgresRepository) FindByID(
@@ -86,4 +118,63 @@ func (r *userPostgresRepository) FindByUsername(
 		return model.User{}, fmt.Errorf("mengambil user berdasarkan username: %w", err)
 	}
 	return u, nil
+}
+
+// Update memperbarui data profil user (username, email, is_active).
+// TIDAK mengubah password atau role — keduanya punya jalur sendiri.
+func (r *userPostgresRepository) Update(
+	ctx context.Context, u model.User,
+) (model.User, error) {
+	err := r.pool.QueryRow(ctx,
+		`UPDATE users SET username = $1, email = $2, is_active = $3
+		 WHERE id = $4
+		 RETURNING id, username, email, role, is_active, created_at`,
+		u.Username, u.Email, u.IsActive, u.ID,
+	).Scan(&u.ID, &u.Username, &u.Email, &u.Role, &u.IsActive, &u.CreatedAt)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return model.User{}, ErrNotFound
+		}
+		if isUniqueViolation(err) {
+			return model.User{}, ErrDuplicate
+		}
+		return model.User{}, fmt.Errorf("memperbarui user: %w", err)
+	}
+	return u, nil
+}
+
+// Delete menghapus user berdasarkan id.
+func (r *userPostgresRepository) Delete(ctx context.Context, id int) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("menghapus user: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateRole sengaja dipisahkan dari Update. Mengubah role adalah tindakan
+// istimewa yang dijaga permission tersendiri, sehingga tidak boleh ikut
+// terbawa oleh endpoint perubahan data biasa.
+func (r *userPostgresRepository) UpdateRole(
+	ctx context.Context, id int, role string,
+) (model.User, error) {
+	var updated model.User
+	err := r.pool.QueryRow(ctx,
+		`UPDATE users SET role = $1 WHERE id = $2
+		 RETURNING id, username, email, role, is_active, created_at`,
+		role, id,
+	).Scan(&updated.ID, &updated.Username, &updated.Email,
+		&updated.Role, &updated.IsActive, &updated.CreatedAt)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return model.User{}, ErrNotFound
+		}
+		return model.User{}, fmt.Errorf("mengubah role user: %w", err)
+	}
+	return updated, nil
 }
