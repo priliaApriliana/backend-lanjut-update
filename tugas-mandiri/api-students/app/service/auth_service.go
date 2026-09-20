@@ -19,6 +19,7 @@ type AuthService struct {
 	userRepo   repository.UserRepository
 	tokenRepo  repository.TokenRepository
 	jwt        *helper.JWTManager
+	perms 	*helper.PermissionSet
 	refreshTTL time.Duration
 }
 
@@ -27,12 +28,14 @@ func NewAuthService(
 	userRepo repository.UserRepository,
 	tokenRepo repository.TokenRepository,
 	jwt *helper.JWTManager,
+	perms *helper.PermissionSet,
 	refreshTTLDays int,
 ) *AuthService {
 	return &AuthService{
 		userRepo:   userRepo,
 		tokenRepo:  tokenRepo,
 		jwt:        jwt,
+		perms:      perms,
 		refreshTTL: time.Duration(refreshTTLDays) * 24 * time.Hour,
 	}
 }
@@ -220,7 +223,13 @@ func (s *AuthService) Me(c *fiber.Ctx) error {
 		return helper.Fail(c, fiber.StatusNotFound, "user tidak ditemukan")
 	}
 
-	return helper.Ok(c, "profil pengguna", user)
+	// Daftar permission ini kemudahan tampilan, bukan pengamanan: frontend
+	// memakainya untuk menyembunyikan tombol yang tidak berguna. Pengamanan
+	// yang sesungguhnya tetap di middleware dan service.
+	return helper.Ok(c, "profil pengguna", fiber.Map{
+		"user":        user,
+		"permissions": s.perms.PermissionsOf(authUser.Role),
+	})
 }
 
 // generateTokenPair membuat pasangan access token + refresh token.
