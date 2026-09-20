@@ -4,9 +4,7 @@ import (
 	"log/slog"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/jackc/pgx/v5/pgxpool"
 
-	"api-students/app/service"
 	"api-students/helper"
 	"api-students/middleware"
 	"api-students/route"
@@ -14,16 +12,13 @@ import (
 
 // NewApp merakit aplikasi: membuat instance Fiber, memasang middleware,
 // lalu mendaftarkan route.
-// Modul 5: tambah authService, jwtManager; BodyLimit 1 MB.
+// Modul 6: parameter disederhanakan menjadi Dependencies.
 func NewApp(
 	logger *slog.Logger,
-	pool *pgxpool.Pool,
-	studentService *service.StudentService,
-	authService *service.AuthService,
-	jwtManager *helper.JWTManager,
+	deps route.Dependencies,
 ) *fiber.App {
 	app := fiber.New(fiber.Config{
-		AppName:      "API Students - Modul 5",
+		AppName:      "API Students - Modul 6",
 		ErrorHandler: newErrorHandler(),
 		BodyLimit:    1 * 1024 * 1024, // 1 MB
 	})
@@ -32,10 +27,7 @@ func NewApp(
 	allowedOrigins := GetEnv("ALLOWED_ORIGINS", "http://localhost:3000")
 	middleware.Register(app, logger, allowedOrigins)
 
-	// Middleware auth: dipakai oleh route yang memerlukan token.
-	authMiddleware := middleware.RequireAuth(jwtManager)
-
-	route.Register(app, pool, studentService, authService, authMiddleware)
+	route.Register(app, deps)
 
 	// Penampung terakhir untuk URL yang tidak dikenal.
 	app.Use(func(c *fiber.Ctx) error {

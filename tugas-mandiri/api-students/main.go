@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
+	"os"
 
 	"api-students/app/repository"
 	"api-students/app/service"
 	"api-students/config"
 	"api-students/database"
 	"api-students/helper"
+	"api-students/route"
 )
 
 // main hanya berisi urutan perakitan. Tidak ada logika bisnis,
@@ -34,13 +37,24 @@ func main() {
 	}
 	defer pool.Close()
 
-	// 4. Perakitan: pool -> repository -> service
+	// 4. Perakitan: pool -> repository
 	studentRepository := repository.NewStudentRepository(pool)
-	studentService := service.NewStudentService(studentRepository)
 
 	// 5. Perakitan autentikasi (Modul 5)
 	userRepository := repository.NewUserRepository(pool)
 	tokenRepository := repository.NewTokenRepository(pool)
+	roleRepository := repository.NewRoleRepository(pool)
+
+	// Pemetaan role ke permission dibaca SEKALI saat aplikasi menyala.
+	// Konsekuensinya: perubahan hak akses di database baru berlaku setelah
+	// aplikasi dijalankan ulang. Itu keputusan sadar, bukan kelalaian.
+	rawPermissions, err := roleRepository.LoadPermissions(context.Background())
+	if err != nil {
+		logger.Error("gagal memuat permission", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	permissions := helper.NewPermissionSet(rawPermissions)
+	logger.Info("permission dimuat", slog.Any("roles", permissions.KnownRoles()))
 
 	jwtIssuer := config.GetEnv("JWT_ISSUER", "api-students")
 	jwtAccessTTL := config.GetEnvInt("JWT_ACCESS_TTL_MINUTES", 15)
@@ -52,11 +66,23 @@ func main() {
 		userRepository,
 		tokenRepository,
 		jwtManager,
+		permissions,
 		jwtRefreshTTL,
 	)
 
-	// 6. Aplikasi
-	app := config.NewApp(logger, pool, studentService, authService, jwtManager)
+	studentService := service.NewStudentService(studentRepository, permissions)
+	userService := service.NewUserService(userRepository, permissions)
+
+	// 6. Aplikasi — rakit Dependencies lalu serahkan ke NewApp.
+	deps := route.Dependencies{
+		Pool:           pool,
+		JWT:            jwtManager,
+		Permissions:    permissions,
+		StudentService: studentService,
+		AuthService:    authService,
+		UserService:    userService,
+	}
+	app := config.NewApp(logger, deps)
 
 	fmt.Println("Server berjalan di http://localhost:3000")
 	port := config.GetEnv("APP_PORT", "3000")

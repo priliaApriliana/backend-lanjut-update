@@ -12,42 +12,84 @@ import (
 	"api-students/middleware"
 )
 
+// Dependencies menampung semua yang dibutuhkan route.
+// Siapa pun yang ingin tahu "endpoint mana yang dijaga apa" cukup
+// membuka satu file ini.
+type Dependencies struct {
+	Pool           *pgxpool.Pool
+	JWT            *helper.JWTManager
+	Permissions    *helper.PermissionSet
+	StudentService *service.StudentService
+	AuthService    *service.AuthService
+	UserService    *service.UserService
+}
+
 // Register memetakan URL ke method pada service. Tidak ada logika bisnis,
 // tidak ada query, tidak ada validasi di sini.
-// Modul 5: tambah authService, authMiddleware; kunci /students.
-func Register(
-	app *fiber.App,
-	pool *pgxpool.Pool,
-	studentService *service.StudentService,
-	authService *service.AuthService,
-	authMiddleware fiber.Handler,
-) {
+func Register(app *fiber.App, deps Dependencies) {
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.SendString("Hello World")
 	})
 
 	api := app.Group("/api/v1")
-	api.Get("/health", healthCheck(pool))
+	api.Get("/health", healthCheck(deps.Pool))
 
 	// ==================== AUTH (publik) ====================
 	auth := api.Group("/auth", middleware.RequireJSON)
-	auth.Post("/register", authService.Register)
-	auth.Post("/login", middleware.LoginRateLimiter(), authService.Login)
-	auth.Post("/refresh", authService.Refresh)
-	auth.Post("/logout", authService.Logout)
+	auth.Post("/register", deps.AuthService.Register)
+	auth.Post("/login", middleware.LoginRateLimiter(), deps.AuthService.Login)
+	auth.Post("/refresh", deps.AuthService.Refresh)
+	auth.Post("/logout", deps.AuthService.Logout)
 
 	// /auth/me memerlukan token.
-	auth.Get("/me", authMiddleware, authService.Me)
+	auth.Get("/me", middleware.RequireAuth(deps.JWT), deps.AuthService.Me)
+
+	// ==================== USERS (wajib login) ====================
+	users := api.Group("/users",
+		middleware.RequireJSON,
+		middleware.RequireAuth(deps.JWT))
+
+	perms := deps.Permissions
+
+	// Hak dapat diputuskan TANPA melihat data → middleware.
+	users.Get("/",
+		middleware.RequirePermission(perms, "user:list"),
+		deps.UserService.List)
+	users.Delete("/:id",
+		middleware.RequirePermission(perms, "user:delete"),
+		deps.UserService.Delete)
+	users.Patch("/:id/role",
+		middleware.RequirePermission(perms, "role:assign"),
+		deps.UserService.AssignRole)
+
+	// Hak BERGANTUNG pada kepemilikan data → diperiksa di service.
+	// Tidak ada RequirePermission di sini bukan berarti tidak dijaga;
+	// pemeriksaan terjadi SETELAH id target diketahui, yaitu di layer
+	// service melalui fungsi CanAccessUser.
+	users.Get("/:id", deps.UserService.Get)
+	users.Put("/:id", deps.UserService.Replace)
+	users.Patch("/:id", deps.UserService.Patch)
 
 	// ==================== STUDENTS (dilindungi) ====================
 	// Semua endpoint students memerlukan token yang valid.
-	s := api.Group("/students", authMiddleware, middleware.RequireJSON)
-	s.Get("", studentService.List)
-	s.Get("/:id", studentService.Get)
-	s.Post("/", studentService.Create)
-	s.Put("/:id", studentService.Replace)
-	s.Patch("/:id", studentService.Patch)
-	s.Delete("/:id", studentService.Delete)
+	s := api.Group("/students", middleware.RequireAuth(deps.JWT), middleware.RequireJSON)
+
+	// Hak dapat diputuskan TANPA melihat data → middleware.
+	s.Get("",
+		middleware.RequirePermission(perms, "student:list"),
+		deps.StudentService.List)
+	s.Post("/",
+		middleware.RequirePermission(perms, "student:create"),
+		deps.StudentService.Create)
+	s.Delete("/:id",
+		middleware.RequirePermission(perms, "student:delete"),
+		deps.StudentService.Delete)
+
+	// Hak BERGANTUNG pada kepemilikan data → diperiksa di service
+	// melalui fungsi CanAccessStudent.
+	s.Get("/:id", deps.StudentService.Get)
+	s.Put("/:id", deps.StudentService.Replace)
+	s.Patch("/:id", deps.StudentService.Patch)
 }
 
 // healthCheck melaporkan kondisi layanan beserta databasenya.
