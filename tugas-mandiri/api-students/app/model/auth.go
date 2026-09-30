@@ -5,11 +5,11 @@ import "time"
 // RegisterRequest adalah body untuk POST /auth/register.
 // TIDAK ADA field Role di sini — role selalu di-set "user" oleh server.
 // Ini mencegah mass assignment: klien tidak bisa mengirim "role":"admin".
-type RegisterRequest struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
+type RegisterRequest struct { 
+    Username string `json:"username" validate:"required,min=3,max=30,username"` 
+    Email    string `json:"email"    validate:"required,email,max=120"` 
+    Password string `json:"password" validate:"required,max=72,strongpassword"` 
+} 
 
 // LoginRequest adalah body untuk POST /auth/login.
 type LoginRequest struct {

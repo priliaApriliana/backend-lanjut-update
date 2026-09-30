@@ -2,9 +2,10 @@ package service
 
 import (
 	"strings"
-	"unicode"
+	// "unicode"
 
 	"api-students/app/model"
+	"api-students/helper"
 )
 
 // File ini berisi business rules MURNI untuk autentikasi.
@@ -12,20 +13,6 @@ import (
 // dan tidak tahu apa pun tentang HTTP.
 // Pola ini sama persis dengan student_rules.go.
 
-// passwordUmum adalah daftar kecil password yang sering dipakai dan
-// harus ditolak meskipun memenuhi syarat panjang dan karakter.
-var passwordUmum = map[string]bool{
-	"password1":  true,
-	"password12": true,
-	"12345678":   true,
-	"123456789":  true,
-	"1234567890": true,
-	"qwerty123":  true,
-	"abcdef123":  true,
-	"abc12345":   true,
-	"admin123":   true,
-	"welcome1":   true,
-}
 
 // ValidateRegister memeriksa isi permintaan register.
 func ValidateRegister(req model.RegisterRequest) map[string]string {
@@ -47,7 +34,7 @@ func ValidateRegister(req model.RegisterRequest) map[string]string {
 
 	if req.Password == "" {
 		errs["password"] = "password tidak boleh kosong"
-	} else if ok, pesan := IsPasswordStrong(req.Password); !ok {
+	} else if ok, pesan := helper.IsPasswordStrong(req.Password); !ok {
 		errs["password"] = pesan
 	}
 
@@ -64,39 +51,6 @@ func ValidateLogin(req model.LoginRequest) map[string]string {
 		errs["password"] = "password tidak boleh kosong"
 	}
 	return errs
-}
-
-// IsPasswordStrong memeriksa kekuatan password.
-// Syarat: minimal 8 karakter, mengandung huruf DAN angka,
-// dan bukan termasuk daftar password umum.
-func IsPasswordStrong(pw string) (bool, string) {
-	if len(pw) < 8 {
-		return false, "password minimal 8 karakter"
-	}
-
-	if passwordUmum[strings.ToLower(pw)] {
-		return false, "password terlalu umum, gunakan yang lebih unik"
-	}
-
-	adaHuruf := false
-	adaAngka := false
-	for _, ch := range pw {
-		if unicode.IsLetter(ch) {
-			adaHuruf = true
-		}
-		if unicode.IsDigit(ch) {
-			adaAngka = true
-		}
-	}
-
-	if !adaHuruf {
-		return false, "password harus mengandung huruf"
-	}
-	if !adaAngka {
-		return false, "password harus mengandung angka"
-	}
-
-	return true, ""
 }
 
 // isValidEmail melakukan validasi sederhana: harus ada tepat satu '@'

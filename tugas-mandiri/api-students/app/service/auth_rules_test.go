@@ -4,47 +4,13 @@ import (
 	"testing"
 
 	"api-students/app/model"
+	"api-students/helper"
 )
 
-// ==================== Test ValidateRegister ====================
-
-func TestValidateRegister_Valid(t *testing.T) {
-	req := model.RegisterRequest{
-		Username: "putri",
-		Email:    "putri@example.com",
-		Password: "Rahasia123",
-	}
-	if errs := ValidateRegister(req); len(errs) != 0 {
-		t.Errorf("data valid seharusnya tidak menghasilkan error, dapat: %v", errs)
-	}
-}
-
-func TestValidateRegister_Invalid(t *testing.T) {
-	req := model.RegisterRequest{
-		Username: "ab",           // terlalu pendek
-		Email:    "bukan-email",  // format salah
-		Password: "short1",      // kurang dari 8 karakter
-	}
-	errs := ValidateRegister(req)
-	if _, ok := errs["username"]; !ok {
-		t.Error("username < 3 karakter seharusnya menghasilkan error")
-	}
-	if _, ok := errs["email"]; !ok {
-		t.Error("email tanpa @ seharusnya menghasilkan error")
-	}
-	if _, ok := errs["password"]; !ok {
-		t.Error("password < 8 karakter seharusnya menghasilkan error")
-	}
-}
-
-func TestValidateRegister_Empty(t *testing.T) {
-	errs := ValidateRegister(model.RegisterRequest{})
-	if len(errs) < 3 {
-		t.Errorf("semua field kosong seharusnya menghasilkan 3 error, dapat: %d", len(errs))
-	}
-}
-
 // ==================== Test IsPasswordStrong ====================
+// Dipindahkan ke helper.IsPasswordStrong sejak Modul 7 (Langkah 5),
+// karena helper/validator.go membutuhkannya dan service tidak boleh
+// diimpor balik oleh helper.
 
 func TestIsPasswordStrong(t *testing.T) {
 	cases := []struct {
@@ -64,11 +30,44 @@ func TestIsPasswordStrong(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ok, pesan := IsPasswordStrong(tc.pw)
+			ok, pesan := helper.IsPasswordStrong(tc.pw)
 			if ok != tc.strong {
 				t.Errorf("IsPasswordStrong(%q) = %v, harap %v (pesan: %s)", tc.pw, ok, tc.strong, pesan)
 			}
 		})
+	}
+}
+
+// ==================== Test ValidateRegister (Modul 7: via tag) ====================
+// ValidateRegister manual sudah dihapus sejak Modul 7 (Langkah 6);
+// RegisterRequest sekarang divalidasi lewat tag struct + helper.ValidateStruct.
+
+func TestRegisterRequest_ValidasiTag_Valid(t *testing.T) {
+	req := model.RegisterRequest{
+		Username: "putri",
+		Email:    "putri@example.com",
+		Password: "Rahasia123",
+	}
+	if errs := helper.ValidateStruct(req); errs != nil {
+		t.Errorf("data valid seharusnya tidak menghasilkan error, dapat: %v", errs)
+	}
+}
+
+func TestRegisterRequest_ValidasiTag_Invalid(t *testing.T) {
+	req := model.RegisterRequest{
+		Username: "ab",          // terlalu pendek
+		Email:    "bukan-email", // format salah
+		Password: "short1x",     // tidak lolos strongpassword
+	}
+	errs := helper.ValidateStruct(req)
+	if _, ok := errs["username"]; !ok {
+		t.Error("username < 3 karakter seharusnya menghasilkan error")
+	}
+	if _, ok := errs["email"]; !ok {
+		t.Error("email tanpa format valid seharusnya menghasilkan error")
+	}
+	if _, ok := errs["password"]; !ok {
+		t.Error("password lemah seharusnya menghasilkan error")
 	}
 }
 
@@ -93,21 +92,12 @@ func TestValidateLogin_Empty(t *testing.T) {
 
 // ==================== Test Mass Assignment Protection ====================
 
-// TestRegisterRequest_TidakAdaFieldRole memastikan bahwa struct
-// RegisterRequest TIDAK memiliki field Role. Ini adalah perlindungan
-// compile-time terhadap mass assignment: jika seseorang menambahkan
-// field Role ke struct, test ini akan gagal kompilasi.
 func TestRegisterRequest_TidakAdaFieldRole(t *testing.T) {
-	// Jika RegisterRequest punya field Role, baris ini akan COMPILE.
-	// Karena RegisterRequest TIDAK punya field Role, ini membuktikan
-	// bahwa mass assignment via "role":"admin" tidak mungkin terjadi.
 	req := model.RegisterRequest{
 		Username: "test",
 		Email:    "test@example.com",
 		Password: "Test1234",
 	}
-
-	// Pastikan struct bisa dibuat tanpa field Role.
 	if req.Username == "" {
 		t.Error("seharusnya tidak kosong")
 	}
