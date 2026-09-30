@@ -12,12 +12,17 @@ import (
 const ContextKeyAuth = "auth_user"
 
 // CurrentUser membaca identitas pengguna yang sudah diverifikasi
-// dari c.Locals. Mengembalikan nil jika belum login (middleware
-// belum menyimpan data).
-func CurrentUser(c *fiber.Ctx) *model.AuthUser {
+// dari c.Locals. ok bernilai false jika belum login.
+func CurrentUser(c *fiber.Ctx) (model.AuthUser, bool) {
 	user, ok := c.Locals(ContextKeyAuth).(*model.AuthUser)
-	if !ok {
-		return nil
+	if !ok || user == nil{
+		return model.AuthUser{}, false
 	}
-	return user
+	return *user, true
+}
+
+// RequestID mengambil request ID dari Locals middleware requestid.
+func RequestID(c *fiber.Ctx) string {
+	id, _ := c.Locals("requestid").(string)
+	return id
 }

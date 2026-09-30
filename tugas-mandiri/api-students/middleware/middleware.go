@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+	"errors"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -35,20 +36,34 @@ func RequestLogger(logger *slog.Logger) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		start := time.Now()
 		err := c.Next()
-
 		requestID, _ := c.Locals("requestid").(string)
+
+		// Sejak handler mengembalikan error alih-alih menulis response sendiri, 
+		// status pada c.Response() BELUM terisi ketika baris ini dijalankan: 
+		// ErrorHandler baru berjalan setelah seluruh rangkaian middleware selesai. 
+		// Tanpa koreksi di bawah, setiap kegagalan tercatat sebagai 200.
+		status := c.Response().StatusCode()
+		if err != nil {
+			var appErr *helper.AppError
+			if errors.As(err, &appErr) {
+				status = appErr.Status
+			} else {
+				status = fiber.StatusInternalServerError
+			}
+		}
+	
 		attrs := []any{
 			slog.String("request_id", requestID),
 			slog.String("method", c.Method()),
 			slog.String("path", c.Path()),
-			slog.Int("status", c.Response().StatusCode()),
+			slog.Int("status", status), //modul 7
 			slog.Duration("duration", time.Since(start)),
 			slog.String("ip", c.IP()),
 		}
 
 		// Identitas dibaca SETELAH c.Next(), karena baru pada saat itu
 		// RequireAuth (yang berjalan di dalam Next) sempat mengisinya.
-		if user := helper.CurrentUser(c); user != nil {
+		if user, ok := helper.CurrentUser(c); ok {
 			attrs = append(attrs,
 				slog.Int("user_id", user.ID),
 				slog.String("role", user.Role))
@@ -71,7 +86,7 @@ func RequireJSON(c *fiber.Ctx) error {
 	if metodeBerbody[c.Method()] {
 		ct := c.Get("Content-Type")
 		if !strings.HasPrefix(ct, fiber.MIMEApplicationJSON) {
-			return helper.Fail(c, fiber.StatusUnsupportedMediaType, "Content-Type harus application/json")
+			return helper.UnsupportedMediaType("Content-Type harus application/json")
 		}
 	}
 	return c.Next()
