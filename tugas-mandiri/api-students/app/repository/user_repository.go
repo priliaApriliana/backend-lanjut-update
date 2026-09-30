@@ -21,6 +21,7 @@ type UserRepository interface {
 	Update(ctx context.Context, u model.User) (model.User, error)
 	Delete(ctx context.Context, id int) error
 	UpdateRole(ctx context.Context, id int, role string) (model.User, error)
+	FindAfterCursor(ctx context.Context, q model.CursorQuery) ([]model.User, error)
 }
 
 type userPostgresRepository struct {
@@ -97,6 +98,54 @@ func (r *userPostgresRepository) FindByID(
 		return model.User{}, fmt.Errorf("mengambil user: %w", err)
 	}
 	return u, nil
+}
+
+// FindAfterCursor mengambil satu halaman memakai keyset pagination.
+//
+// id ikut dibandingkan karena created_at TIDAK dijamin unik. Bila dua
+// baris dibuat pada mikrodetik yang sama dan hanya created_at yang
+// dibandingkan, salah satu baris akan terlewat atau terkirim dua kali.
+//
+// Jumlah yang diminta sengaja limit+1. Baris tambahan itu tidak dikirim
+// ke client; keberadaannya hanya dipakai untuk menjawab "masih ada
+// halaman berikutnya?" tanpa perlu COUNT(*) atas seluruh tabel.
+func (r *userPostgresRepository) FindAfterCursor(
+	ctx context.Context, q model.CursorQuery,
+) ([]model.User, error) {
+	args := []any{}
+	where := ""
+
+	if q.After != nil {
+		args = append(args, q.After.CreatedAt, q.After.ID)
+		where = fmt.Sprintf(" WHERE (created_at, id) < ($%d, $%d)",
+			len(args)-1, len(args))
+	}
+
+	args = append(args, q.Limit+1)
+	query := fmt.Sprintf(
+		`SELECT id, username, email, role, is_active, created_at
+		 FROM users%s ORDER BY created_at DESC, id DESC LIMIT $%d`,
+		where, len(args))
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("mengambil daftar user: %w", err)
+	}
+	defer rows.Close()
+
+	hasil := []model.User{}
+	for rows.Next() {
+		var u model.User
+		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Role, &u.IsActive, &u.CreatedAt); err != nil {
+			return nil, fmt.Errorf("membaca baris user: %w", err)
+		}
+		hasil = append(hasil, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("membaca hasil query user: %w", err)
+	}
+
+	return hasil, nil
 }
 
 // FindByUsername mengembalikan User BESERTA password hash.
