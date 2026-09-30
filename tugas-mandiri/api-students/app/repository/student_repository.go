@@ -1,4 +1,4 @@
-package repository
+﻿package repository
 
 import (
 	"context"
@@ -26,6 +26,7 @@ type StudentRepository interface {
 	Create(ctx context.Context, s model.Student) (model.Student, error)
 	Update(ctx context.Context, s model.Student) (model.Student, error)
 	Delete(ctx context.Context, id int) error
+	FindAfterCursor(ctx context.Context, q model.CursorQuery) ([]model.Student, error)
 }
 
 // kolomUrut adalah daftar putih: pemetaan dari nilai yang boleh dikirim
@@ -153,6 +154,51 @@ func (r *studentPostgresRepository) FindByID(
 		return model.Student{}, fmt.Errorf("mengambil mahasiswa: %w", err)
 	}
 	return s, nil
+}
+
+// FindAfterCursor mengambil satu halaman mahasiswa memakai keyset
+// pagination. Pasangan (created_at, id) dipakai sebagai penanda posisi:
+// created_at saja tidak dijamin unik (dua mahasiswa bisa dibuat pada
+// detik yang sama persis), sedangkan id (primary key) selalu unik,
+// sehingga kombinasi keduanya menjamin urutan total yang konsisten.
+func (r *studentPostgresRepository) FindAfterCursor(
+	ctx context.Context, q model.CursorQuery,
+) ([]model.Student, error) {
+	args := []any{}
+	where := ""
+
+	if q.After != nil {
+		args = append(args, q.After.CreatedAt, q.After.ID)
+		where = fmt.Sprintf(" WHERE (created_at, id) < ($%d, $%d)",
+			len(args)-1, len(args))
+	}
+
+	args = append(args, q.Limit+1)
+	query := fmt.Sprintf(
+		`SELECT id, nim, name, grade, is_active, owner_id, created_at
+		 FROM students%s ORDER BY created_at DESC, id DESC LIMIT $%d`,
+		where, len(args))
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("mengambil daftar mahasiswa: %w", err)
+	}
+	defer rows.Close()
+
+	hasil := []model.Student{}
+	for rows.Next() {
+		var s model.Student
+		if err := rows.Scan(&s.ID, &s.NIM, &s.Name, &s.Grade, &s.IsActive,
+			&s.OwnerID, &s.CreatedAt); err != nil {
+			return nil, fmt.Errorf("membaca baris mahasiswa: %w", err)
+		}
+		hasil = append(hasil, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("membaca hasil query: %w", err)
+	}
+
+	return hasil, nil
 }
 
 func (r *studentPostgresRepository) Create(
