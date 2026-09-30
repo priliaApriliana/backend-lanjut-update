@@ -62,6 +62,33 @@ Menambahkan sistem autentikasi lengkap. Seluruh endpoint `/students` kini tertut
 - **Business rules murni** (`auth_rules.go`) memvalidasi kekuatan password (minimal 8 karakter, harus ada huruf dan angka, menolak daftar password umum), diuji lewat unit test terpisah dari HTTP handler.
 - Seluruh sepuluh skenario keamanan (register, login, akses tanpa token, token dimodifikasi, rotasi refresh token, brute force, dll.) diuji langsung terhadap server yang berjalan dan lolos.
 
+### Modul 6 — Authorization & RBAC
+
+Menambahkan kontrol akses berbasis role (RBAC) dan kepemilikan data, di atas autentikasi yang sudah ada sejak Modul 5:
+
+- **Tabel `roles` baru**: daftar role yang valid (`admin`, `staff`, `user`), dirujuk oleh `users.role` lewat foreign key — mencegah role tidak dikenal tersimpan di database.
+- **Permission set dimuat sekali saat startup**, dipetakan per role (misalnya `student:read:any`, `student:update:any`, `student:delete`, `user:read:any`, `user:update:any`, `role:assign`). Perubahan pada pemetaan ini tidak butuh mengubah kode handler.
+- **Middleware `RequirePermission`**: menolak request yang role-nya tidak memiliki permission tertentu — dipasang pada route yang keputusan aksesnya bisa diambil tanpa melihat isi data (misalnya "boleh melihat daftar seluruh user").
+- **Pemeriksaan kepemilikan di layer service** (`CanAccessUser`, `CanAccessStudent`): untuk aksi yang bergantung pada data (misalnya "boleh mengubah karena ini miliknya sendiri"), middleware tidak cukup karena belum tahu data siapa yang akan disentuh — pemeriksaan dilakukan setelah data diambil, sebelum diproses.
+- **Kolom `owner_id` pada tabel `students`**: setiap mahasiswa tercatat milik satu akun user. Endpoint `POST /students` mengisi `owner_id` otomatis dari identitas pengguna yang login — klien tidak bisa menyetelnya lewat request body (mass assignment protection, pola sama seperti `role` di Modul 5).
+- **Endpoint baru `PATCH /api/v1/users/:id/role`**: mengubah role sebuah akun, dijaga permission `role:assign` — sengaja dipisah dari endpoint update profil biasa karena mengubah role adalah tindakan istimewa.
+- **Urutan pemeriksaan hak akses disengaja SEBELUM data diambil** pada endpoint yang membaca satu resource: mencegah penyerang membedakan "data tidak ada" (404) dari "data ada tapi bukan miliknya" (403) lewat perbedaan respons.
+- Data lama (dibuat sebelum kolom `owner_id` ada) di-assign ke akun admin lewat migration, bukan dibiarkan null.
+
+### Modul 7 — Advanced API Design
+
+Menggantikan validasi manual dan response kegagalan yang tersebar dengan pola terpusat, serta menambahkan cursor pagination dan content negotiation:
+
+- **Validasi deklaratif** memakai `go-playground/validator/v10`: aturan (`required`, `min`, `max`, `email`, dll.) ditulis sebagai tag pada struct request, bukan rangkaian `if` di service. Termasuk custom tag: `nospace`, `username`, `strongpassword` (password), dan `nim` (format NIM mahasiswa: 9 digit, diawali `43`).
+- **Field PATCH memakai pointer dengan tag `omitnil`** (bukan `omitempty`): membedakan "field tidak dikirim" (dilewati) dari "field dikirim kosong" (tetap diperiksa dan ditolak) — misalnya `PATCH {"name":""}` ditolak 422, sedangkan body tanpa `name` sama sekali diterima.
+- **Error handling terpusat**: satu tipe `AppError` (`Status`, `Code`, `Message`, `Fields`) dan satu `ErrorHandler` di seluruh aplikasi. Handler cukup `return error`; bentuk response kegagalan, pencatatan log, dan penyembunyian detail teknis (mis. pesan database) ditangani di satu tempat.
+- **Kode error stabil** (`VALIDATION_ERROR`, `NOT_FOUND`, `FORBIDDEN`, dst.) ditambahkan ke setiap response kegagalan, terpisah dari `message` yang bisa berubah kapan saja — klien menulis percabangan berdasarkan `code`, bukan mencocokkan teks pesan.
+- **`request_id`** disertakan di setiap response kegagalan dan log, menghubungkan satu keluhan pengguna dengan baris log yang tepat.
+- **Level log dipisah berdasarkan siapa yang salah**: kegagalan 4xx (kesalahan pemakai API) dicatat `WARN`, kegagalan 5xx (kerusakan sistem) dicatat `ERROR` — mencegah log kebanjiran sekaligus memastikan kerusakan nyata tidak tenggelam.
+- **Cursor (keyset) pagination** menggantikan `OFFSET` pada endpoint daftar: memakai pasangan `(created_at DESC, id DESC)` sebagai penanda posisi (`id` menjamin keunikan karena `created_at` saja bisa sama pada dua baris). Tidak lagi rentan terhadap baris yang bergeser atau terkirim dua kali saat data berubah di antara dua permintaan halaman.
+- **Content negotiation**: endpoint daftar user dan mahasiswa bisa membalas `application/json` (bawaan) atau `text/csv`, dipilih lewat header `Accept`. Format yang tidak didukung dibalas `406 Not Acceptable`.
+- **Indeks database khusus cursor** (`(created_at DESC, id DESC)`) dibuat pada tabel `users` dan `students`, sejalan dengan urutan `ORDER BY` supaya PostgreSQL bisa melompat langsung ke posisi cursor tanpa membaca ulang dari awal.
+
 ---
 
 ## Cara Menyiapkan dari Nol
@@ -79,10 +106,14 @@ Menambahkan sistem autentikasi lengkap. Seluruh endpoint `/students` kini tertut
    psql -U postgres -c "CREATE DATABASE tugas_mandiri_students;"
 ```
 
-4. Jalankan migrasi (urut, keduanya wajib):
+4. Jalankan migrasi secara berurutan (nomor menunjukkan urutan):
 ```bash
    psql -U postgres -d tugas_mandiri_students -f migrations/001_create_students.sql
    psql -U postgres -d tugas_mandiri_students -f migrations/002_auth.sql
+   psql -U postgres -d tugas_mandiri_students -f migrations/003_rbac.sql
+   psql -U postgres -d tugas_mandiri_students -f migrations/004_student_permissions.sql
+   psql -U postgres -d tugas_mandiri_students -f migrations/005_cursor_index.sql
+   psql -U postgres -d tugas_mandiri_students -f migrations/006_student_cursor_index.sql
 ```
 
 5. Salin `.env.example` menjadi `.env`, lalu isi nilainya sesuai konfigurasi PostgreSQL lokal. Khusus `JWT_SECRET`, buat nilai acak sendiri (jangan dikarang manual):
@@ -168,50 +199,43 @@ CREATE INDEX IF NOT EXISTS refresh_tokens_user_id_idx
 ## Struktur Proyek
 
 ```
-api-students/
 ├── app/
 │   ├── model/
-│   │   ├── student.go              entitas Student, struct request, dan ListQuery
+│   │   ├── student.go              entitas Student, struct request (dengan tag validate), ListQuery, Cursor
 │   │   ├── response.go             struct Response dan Meta
-│   │   ├── user.go                 entitas User (akun login) — Modul 5
-│   │   └── auth.go                 struct request/response autentikasi — Modul 5
-│   ├── repository/
-│   │   ├── student_repository.go   kontrak (interface) dan implementasi akses data (pgx)
-│   │   ├── user_repository.go      akses data tabel users — Modul 5
-│   │   └── token_repository.go     akses data tabel refresh_tokens — Modul 5
+│   │   ├── user.go                 entitas User, struct request (dengan tag validate), ErrorResponse, CursorMeta
+│   │   └── auth.go                 struct request/response autentikasi
++  ├── repository/
++  │   ├── student_repository.go   ... + FindAfterCursor (cursor pagination) — Modul 7
++  │   ├── user_repository.go      ... + FindAfterCursor (cursor pagination) — Modul 7
+│   │   └── token_repository.go
 │   └── service/
-│       ├── student_service.go      handler HTTP yang memanggil repository
-│       ├── student_rules.go        business rules murni (validasi, patch) — tanpa Fiber/SQL
-│       ├── student_rules_test.go   unit test untuk business rules
-│       ├── auth_service.go         handler HTTP: register, login, refresh, logout, me — Modul 5
-│       ├── auth_rules.go           business rules murni autentikasi — Modul 5
-│       └── auth_rules_test.go      unit test untuk business rules autentikasi — Modul 5
-├── config/
-│   ├── app.go                      perakitan aplikasi Fiber (middleware + route)
-│   ├── env.go                      pembaca variabel environment (.env)
-│   └── logger.go                   logger JSON terstruktur + rotasi file
-├── database/
-│   └── postgres.go                 koneksi dan connection pool PostgreSQL
+│       ├── student_service.go      ... — Modul 6: pemeriksaan kepemilikan (CanAccessStudent)
+│       ├── student_rules.go        ApplyPatch, IsEmptyPatch, CountTotalPages
++  │   ├── auth_service.go
++  │   ├── auth_rules.go            ValidateLogin (ValidateRegister dipindah ke tag — Modul 7)
++  │   └── permission.go            CanAccessUser, CanAccessStudent, PermissionSet — Modul 6
 ├── helper/
-│   ├── request.go                  pembaca query string dan parameter path
-│   ├── response.go                 response envelope (Ok, Created, Fail, dll.)
-│   ├── security.go                 hashing password (bcrypt) dan token acak — Modul 5
-│   ├── jwt.go                      pembuatan dan verifikasi JWT — Modul 5
-│   └── context.go                  pembaca identitas pengguna dari Locals — Modul 5
+│   ├── request.go
+│   ├── response.go                 ... + Success, SuccessCursor — Modul 7
+│   ├── security.go
+│   ├── jwt.go
+│   ├── context.go                  CurrentUser (ok bool), RequestID
++  ├── errors.go                    AppError, ErrorHandler helpers (NotFound, Forbidden, dll.) — Modul 7
++  ├── validator.go                 ValidateStruct, custom tag (strongpassword, nim, dll.) — Modul 7
++  └── cursor.go                    EncodeCursor, DecodeCursor, ParseCursorQuery — Modul 7
++  └── negotiate.go                 Negotiate, WriteUsersCSV, WriteStudentsCSV — Modul 7
 ├── middleware/
-│   ├── middleware.go               middleware global (requestid, logger, CORS) + RequireJSON
-│   └── auth.go                     RequireAuth dan rate limiter login — Modul 5
-├── route/
-│   └── route.go                    pendaftaran route ke handler
+│   ├── middleware.go               ... + RequireJSON (415 via AppError) — Modul 7
++  ├── auth.go                      RequireAuth, LoginRateLimiter
++  └── authz.go                     RequirePermission, RequireRole — Modul 6
 ├── migrations/
 │   ├── 001_create_students.sql
-│   └── 002_auth.sql                tabel users dan refresh_tokens — Modul 5
-├── logs/                           output log (tidak di-commit)
-├── .env                            konfigurasi environment (tidak di-commit)
-├── .env.example
-├── main.go                         titik masuk — hanya urutan perakitan
-├── go.mod
-└── go.sum
+│   ├── 002_auth.sql
++  ├── 003_rbac.sql                 tabel roles, kolom users.role FK — Modul 6
++  ├── 004_student_permissions.sql  kolom students.owner_id — Modul 6
++  ├── 005_cursor_index.sql         indeks cursor pada users — Modul 7
++  └── 006_student_cursor_index.sql indeks cursor pada students — Modul 7
 ```
 
 ## Format Respons
@@ -429,6 +453,8 @@ Ubah sebagian data mahasiswa. Cuma field yang dikirim yang berubah; alur baca-du
 | 429    | Terlalu banyak percobaan login dalam satu menit — Modul 5       |
 | 500    | Error tak terduga (termasuk database mati saat endpoint dipanggil) |
 | 503    | `/health` gagal terhubung ke database                          |
+| 406    | Header `Accept` meminta format selain `application/json`/`text/csv` — Modul 7 |
+| 422    | Ada field yang tidak lolos validasi (tag `validate`) — Modul 7 |
 
 ## Keamanan (Modul 5)
 
