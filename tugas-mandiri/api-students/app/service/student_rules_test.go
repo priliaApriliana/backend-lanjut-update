@@ -4,16 +4,18 @@ import (
 	"testing"
 
 	"api-students/app/model"
+	"api-students/helper"
 )
 
+// ==================== Test ValidateCreate (Modul 7: via struct tag) ====================
 func TestValidateCreate(t *testing.T) {
 	valid := model.CreateStudentRequest{NIM: "434241022", Name: "Putri", Grade: 3.5, IsActive: true}
-	if errs := ValidateCreate(valid); len(errs) != 0 {
+	if errs := helper.ValidateStruct(valid); errs != nil {
 		t.Errorf("data valid seharusnya tidak menghasilkan error, dapat: %v", errs)
 	}
 
 	invalid := model.CreateStudentRequest{NIM: "", Name: "  ", Grade: 4.5}
-	errs := ValidateCreate(invalid)
+	errs := helper.ValidateStruct(invalid)
 	if _, ok := errs["nim"]; !ok {
 		t.Error("nim kosong seharusnya menghasilkan error")
 	}
@@ -25,22 +27,21 @@ func TestValidateCreate(t *testing.T) {
 	}
 }
 
+// ==================== Test ValidateReplace (Modul 7: via struct tag) ====================
 func TestValidateReplace(t *testing.T) {
 	invalid := model.UpdateStudentRequest{NIM: "434241022", Name: "Putri", Grade: -1}
-	errs := ValidateReplace(invalid)
+	errs := helper.ValidateStruct(invalid)
 	if _, ok := errs["grade"]; !ok {
 		t.Error("grade negatif seharusnya menghasilkan error pada PUT")
 	}
 }
 
+// ==================== Test ApplyPatch ====================
 func TestApplyPatch(t *testing.T) {
 	initial := model.Student{ID: 1, NIM: "434241022", Name: "Putri", Grade: 3.0, IsActive: true}
 	inactive := false
 
-	result, errs := ApplyPatch(initial, model.PatchStudentRequest{IsActive: &inactive})
-	if len(errs) != 0 {
-		t.Fatalf("tidak seharusnya ada error: %v", errs)
-	}
+	result := ApplyPatch(initial, model.PatchStudentRequest{IsActive: &inactive})
 	if result.IsActive {
 		t.Error("is_active seharusnya berubah menjadi false")
 	}
@@ -49,6 +50,7 @@ func TestApplyPatch(t *testing.T) {
 	}
 }
 
+// ==================== Test IsEmptyPatch ====================
 func TestIsEmptyPatch(t *testing.T) {
 	if !IsEmptyPatch(model.PatchStudentRequest{}) {
 		t.Error("PatchStudentRequest kosong seharusnya dianggap empty patch")
@@ -59,6 +61,7 @@ func TestIsEmptyPatch(t *testing.T) {
 	}
 }
 
+// ==================== Test CountTotalPages ====================
 func TestCountTotalPages(t *testing.T) {
 	cases := []struct{ total, limit, want int }{
 		{0, 10, 0},

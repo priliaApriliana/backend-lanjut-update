@@ -15,25 +15,25 @@ type Student struct {
 
 // POST, semua field wajib
 type CreateStudentRequest struct {
-	NIM      string  `json:"nim"`
-	Name     string  `json:"name"`
-	Grade    float64 `json:"grade"`
+	NIM      string  `json:"nim" validate:"required,nim"`
+	Name     string  `json:"name" validate:"required,min=3,max=100"`
+	Grade    float64 `json:"grade" validate:"min=0,max=4"`
 	IsActive bool    `json:"is_active"`
 }
 
 // PUT, ganti semua isi/body, tipe biasa dan semuanya wajib
 type UpdateStudentRequest struct {
-	NIM      string  `json:"nim"`
-	Name     string  `json:"name"`
-	Grade    float64 `json:"grade"`
+	NIM      string  `json:"nim" validate:"required,nim"`
+	Name     string  `json:"name" validate:"required,min=3,max=100"`
+	Grade    float64 `json:"grade" validate:"min=0,max=4"`
 	IsActive bool    `json:"is_active"`
 }
 
 // PATCH, ubah sebagian, tipe pointer
 type PatchStudentRequest struct {
-	NIM      *string  `json:"nim,omitempty"`
-	Name     *string  `json:"name,omitempty"`
-	Grade    *float64 `json:"grade,omitempty"`
+	NIM      *string  `json:"nim,omitempty" validate:"omitnil,nim"`
+	Name     *string  `json:"name,omitempty" validate:"omitnil,min=3,max=100"`
+	Grade    *float64 `json:"grade,omitempty" validate:"omitnil,min=0,max=4"`
 	IsActive *bool    `json:"is_active,omitempty"`
 }
 
