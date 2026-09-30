@@ -20,20 +20,20 @@ func RequireAuth(jwtManager *helper.JWTManager) fiber.Handler {
 		authHeader := c.Get("Authorization")
 		if authHeader == "" {
 			c.Set("WWW-Authenticate", wwwAuth)
-			return helper.Fail(c, fiber.StatusUnauthorized, "token diperlukan untuk mengakses resource ini")
+			return helper.Unauthorized("token diperlukan untuk mengakses resource ini")
 		}
 
 		// Format harus "Bearer <token>".
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
 			c.Set("WWW-Authenticate", wwwAuth)
-			return helper.Fail(c, fiber.StatusUnauthorized, "format Authorization header tidak valid")
+			return helper.Unauthorized("format Authorization header tidak valid")
 		}
 
 		tokenString := parts[1]
 		if tokenString == "" {
 			c.Set("WWW-Authenticate", wwwAuth)
-			return helper.Fail(c, fiber.StatusUnauthorized, "token tidak boleh kosong")
+			return helper.Unauthorized("token tidak boleh kosong")
 		}
 
 		// Parse dan validasi token.
@@ -46,7 +46,7 @@ func RequireAuth(jwtManager *helper.JWTManager) fiber.Handler {
 			if err == helper.ErrExpiredToken {
 				pesan = "token sudah kedaluwarsa"
 			}
-			return helper.Fail(c, fiber.StatusUnauthorized, pesan)
+			return helper.Unauthorized(pesan)
 		}
 
 		// Simpan identitas ke Locals menggunakan key konstanta.
@@ -116,8 +116,7 @@ func LoginRateLimiter() fiber.Handler {
 
 		if count > 5 {
 			c.Set("Retry-After", "60")
-			return helper.Fail(c, fiber.StatusTooManyRequests,
-				"terlalu banyak percobaan login, coba lagi dalam 60 detik")
+			return helper.TooManyRequests("terlalu banyak percobaan login, coba lagi dalam 60 detik")
 		}
 
 		return c.Next()

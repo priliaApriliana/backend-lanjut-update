@@ -19,7 +19,7 @@ type AuthService struct {
 	userRepo   repository.UserRepository
 	tokenRepo  repository.TokenRepository
 	jwt        *helper.JWTManager
-	perms 	*helper.PermissionSet
+	perms		*helper.PermissionSet
 	refreshTTL time.Duration
 }
 
@@ -48,17 +48,17 @@ func (s *AuthService) Register(c *fiber.Ctx) error {
 
 	var req model.RegisterRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.Fail(c, fiber.StatusBadRequest, "body JSON tidak valid")
+		return helper.BadRequest("body JSON tidak valid")
 	}
 
-	if errs := ValidateRegister(req); len(errs) > 0 {
-		return helper.FailValidation(c, errs)
+	if errs := helper.ValidateStruct(req); errs != nil {
+		return helper.Validation(errs)
 	}
 
 	// Hash password dengan bcrypt (cost 12).
 	hashed, err := helper.HashPassword(req.Password)
 	if err != nil {
-		return helper.Fail(c, fiber.StatusInternalServerError, "gagal memproses registrasi")
+		return helper.Internal( err)
 	}
 
 	// Role SELALU "user" — tidak pernah diambil dari request.
@@ -73,9 +73,9 @@ func (s *AuthService) Register(c *fiber.Ctx) error {
 	})
 	if err != nil {
 		if errors.Is(err, repository.ErrDuplicate) {
-			return helper.Fail(c, fiber.StatusConflict, "username atau email sudah digunakan")
+			return helper.Conflict("username atau email sudah digunakan")
 		}
-		return helper.Fail(c, fiber.StatusInternalServerError, "gagal menyimpan user")
+		return helper.Internal( err)
 	}
 
 	return helper.Created(c, "registrasi berhasil", user, "/api/v1/auth/me")
@@ -89,11 +89,11 @@ func (s *AuthService) Login(c *fiber.Ctx) error {
 
 	var req model.LoginRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.Fail(c, fiber.StatusBadRequest, "body JSON tidak valid")
+		return helper.BadRequest("body JSON tidak valid")
 	}
 
 	if errs := ValidateLogin(req); len(errs) > 0 {
-		return helper.FailValidation(c, errs)
+		return helper.Validation(errs)
 	}
 
 	// Pesan error yang SAMA PERSIS untuk kedua kasus:
@@ -108,23 +108,23 @@ func (s *AuthService) Login(c *fiber.Ctx) error {
 			// User tidak ditemukan → tetap jalankan bcrypt dummy agar
 			// waktu respons konsisten dengan kasus password salah.
 			helper.VerifyDummyPassword(req.Password)
-			return helper.Fail(c, fiber.StatusUnauthorized, pesanGagalLogin)
+			return helper.Unauthorized(pesanGagalLogin)
 		}
-		return helper.Fail(c, fiber.StatusInternalServerError, "gagal memproses login")
+		return helper.Internal( err)
 	}
 
 	// Verifikasi password.
 	if !helper.VerifyPassword(user.Password, req.Password) {
-		return helper.Fail(c, fiber.StatusUnauthorized, pesanGagalLogin)
+		return helper.Unauthorized(pesanGagalLogin)
 	}
 
 	// Generate token pair.
 	pair, err := s.generateTokenPair(ctx, user)
 	if err != nil {
-		return helper.Fail(c, fiber.StatusInternalServerError, "gagal membuat token")
+		return helper.Internal( err)
 	}
 
-	return helper.Ok(c, "login berhasil", pair)
+	return helper.Success(c, fiber.StatusOK, "login berhasil", pair)
 }
 
 // ==================== POST /api/v1/auth/refresh ====================
@@ -135,11 +135,11 @@ func (s *AuthService) Refresh(c *fiber.Ctx) error {
 
 	var req model.RefreshRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.Fail(c, fiber.StatusBadRequest, "body JSON tidak valid")
+		return helper.BadRequest("body JSON tidak valid")
 	}
 
 	if req.RefreshToken == "" {
-		return helper.Fail(c, fiber.StatusBadRequest, "refresh_token tidak boleh kosong")
+		return helper.BadRequest("refresh_token tidak boleh kosong")
 	}
 
 	// Hash token yang dikirim klien untuk mencocokkan dengan database.
@@ -149,30 +149,30 @@ func (s *AuthService) Refresh(c *fiber.Ctx) error {
 	storedToken, err := s.tokenRepo.FindActive(ctx, tokenHash)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return helper.Fail(c, fiber.StatusUnauthorized, "refresh token tidak valid atau sudah digunakan")
+			return helper.Unauthorized("refresh token tidak valid atau sudah digunakan")
 		}
-		return helper.Fail(c, fiber.StatusInternalServerError, "gagal memverifikasi refresh token")
+		return helper.Internal( err)
 	}
 
 	// ROTASI WAJIB: revoke token lama sebelum membuat yang baru.
 	// Token yang sudah dipakai tidak boleh bisa dipakai lagi.
 	if err := s.tokenRepo.Revoke(ctx, storedToken.ID); err != nil {
-		return helper.Fail(c, fiber.StatusInternalServerError, "gagal mencabut token lama")
+		return helper.Internal( err)
 	}
 
 	// Ambil data user untuk claims token baru.
 	user, err := s.userRepo.FindByID(ctx, storedToken.UserID)
 	if err != nil {
-		return helper.Fail(c, fiber.StatusInternalServerError, "gagal mengambil data user")
+		return helper.Internal( err)
 	}
 
 	// Generate token pair baru.
 	pair, err := s.generateTokenPair(ctx, user)
 	if err != nil {
-		return helper.Fail(c, fiber.StatusInternalServerError, "gagal membuat token baru")
+		return helper.Internal( err)
 	}
 
-	return helper.Ok(c, "token berhasil diperbarui", pair)
+	return helper.Success(c, fiber.StatusOK, "token berhasil diperbarui", pair)
 }
 
 // ==================== POST /api/v1/auth/logout ====================
@@ -183,11 +183,11 @@ func (s *AuthService) Logout(c *fiber.Ctx) error {
 
 	var req model.RefreshRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.Fail(c, fiber.StatusBadRequest, "body JSON tidak valid")
+		return helper.BadRequest("body JSON tidak valid")
 	}
 
 	if req.RefreshToken == "" {
-		return helper.Fail(c, fiber.StatusBadRequest, "refresh_token tidak boleh kosong")
+		return helper.BadRequest("refresh_token tidak boleh kosong")
 	}
 
 	tokenHash := helper.SHA256Hex(req.RefreshToken)
@@ -197,22 +197,22 @@ func (s *AuthService) Logout(c *fiber.Ctx) error {
 	if err != nil {
 		// Meskipun token tidak ditemukan, tetap kembalikan 200
 		// agar tidak bocorkan info apakah token itu pernah ada.
-		return helper.Ok(c, "logout berhasil", nil)
+		return helper.Success(c, fiber.StatusOK, "logout berhasil", nil)
 	}
 
 	// Cabut HANYA refresh token yang dikirim klien ini,
 	// sesuai spesifikasi: satu logout = satu sesi berakhir.
 	_ = s.tokenRepo.Revoke(ctx, storedToken.ID)
 
-	return helper.Ok(c, "logout berhasil", nil)
+	return helper.Success(c, fiber.StatusOK, "logout berhasil", nil)
 }
 
 // ==================== GET /api/v1/auth/me ====================
 
 func (s *AuthService) Me(c *fiber.Ctx) error {
-	authUser := helper.CurrentUser(c)
-	if authUser == nil {
-		return helper.Fail(c, fiber.StatusUnauthorized, "tidak terautentikasi")
+	authUser, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Unauthorized("tidak terautentikasi")
 	}
 
 	ctx, cancel := helper.RequestContext(c)
@@ -220,7 +220,7 @@ func (s *AuthService) Me(c *fiber.Ctx) error {
 
 	user, err := s.userRepo.FindByID(ctx, authUser.ID)
 	if err != nil {
-		return helper.Fail(c, fiber.StatusNotFound, "user tidak ditemukan")
+		return helper.NotFound("user tidak ditemukan")
 	}
 
 	// Daftar permission ini kemudahan tampilan, bukan pengamanan: frontend
