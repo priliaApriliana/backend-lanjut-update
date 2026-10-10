@@ -9,7 +9,7 @@
 * **Nama Mahasiswa:** Putri Apriliana
 * **NIM:** 434241022
 * **Dosen Pengampu:** Tim Dosen Pemrograman Backend Lanjut
-* **Tautan Repositori GitHub:** [https://github.com/priliaApriliana/backend-lanjut](https://github.com/priliaApriliana/backend-lanjut)
+* **Tautan Repositori GitHub:** [https://github.com/priliaApriliana/backend-lanjut-update](https://github.com/priliaApriliana/backend-lanjut-update)
 * **Branch Pengerjaan:** `main` (Direktori: `latihan-fiber/modul 7`)
 
 ---

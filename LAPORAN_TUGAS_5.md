@@ -8,7 +8,7 @@
 - **NIM:** 434241022
 - **Kelas:** D4 Teknik Informatika
 - **Mata Kuliah:** Praktikum Pemrograman Backend Lanjut
-- **Tautan Repositori GitHub:** `https://github.com/priliaApriliana/backend-lanjut`
+- **Tautan Repositori GitHub:** `https://github.com/priliaApriliana/backend-lanjut-update`
 
 ---
 
